@@ -42,6 +42,7 @@ export default function RoomPage({
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const isRemoteUpdate = useRef(false)
   const [needsInteraction, setNeedsInteraction] = useState(false)
+  const [copied, setCopied] = useState(false)
   const socketRef = useRef<any>(null)
   const listenerStarting = useRef(false)
 
@@ -162,16 +163,28 @@ console.log("widget initialized")
             <p className="text-zinc-500 text-sm">Listening together</p>
           </div>
         </div>
-        <button
-          onClick={() => setIsHost((h) => !h)}
-          className={`text-xs px-3 py-1 rounded-full border transition ${
-            isHost
-              ? "border-violet-500 text-violet-400"
-              : "border-zinc-700 text-zinc-500"
-          }`}
-        >
-          {isHost ? "Host" : "Listener"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.href)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 2000)
+            }}
+            className="text-xs px-3 py-1 rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 transition"
+          >
+            {copied ? "Copied!" : "Copy link"}
+          </button>
+          <button
+            onClick={() => setIsHost((h) => !h)}
+            className={`text-xs px-3 py-1 rounded-full border transition ${
+              isHost
+                ? "border-violet-500 text-violet-400"
+                : "border-zinc-700 text-zinc-500"
+            }`}
+          >
+            {isHost ? "Host" : "Listener"}
+          </button>
+        </div>
       </div>
 
       {/* Player */}
