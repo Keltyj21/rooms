@@ -160,7 +160,9 @@ console.log("widget initialized")
           </Link>
           <div>
             <h1 className="font-semibold text-lg">Friday Afternoon Vibes</h1>
-            <p className="text-zinc-500 text-sm">Listening together</p>
+            <p className="text-zinc-500 text-sm">
+              Code: <span className="text-zinc-300 font-mono tracking-widest uppercase">{id}</span>
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
