@@ -1,0 +1,5 @@
+{
+  "name": "rooms",
+  "main": "party/index.ts",
+  "compatibilityDate": "2026-06-05"
+}
