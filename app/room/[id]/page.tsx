@@ -46,7 +46,7 @@ export default function RoomPage({
   const listenerStarting = useRef(false)
 
   const socket = usePartySocket({
-    host: "localhost:1999",
+    host: "rooms.keltyj21.partykit.dev",
     room: id,
     onMessage(event) {
       const msg = JSON.parse(event.data)
