@@ -36,15 +36,16 @@ export default function RoomPage({
   const [inputText, setInputText] = useState("")
   const [name, setName] = useState("")
   const [color] = useState(() => randomColor())
+  const [copied, setCopied] = useState(false)
+  const [needsInteraction, setNeedsInteraction] = useState(false)
   const [isHost, setIsHost] = useState(false)
+  const [hostId, setHostId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<any>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const isRemoteUpdate = useRef(false)
-  const [needsInteraction, setNeedsInteraction] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const socketRef = useRef<any>(null)
   const listenerStarting = useRef(false)
+  const isHostRef = useRef(false)
 
   const socket = usePartySocket({
     host: "rooms.keltyj21.partykit.dev",
@@ -57,10 +58,32 @@ export default function RoomPage({
         return
       }
 
+      if (msg.type === "host-changed") {
+        setHostId(msg.hostId)
+        const amHost = msg.hostId === socket.id
+        setIsHost(amHost)
+        isHostRef.current = amHost
+        return
+      }
+
+      if (msg.type === "state") {
+        setHostId(msg.hostId)
+        const amHost = msg.hostId === socket.id
+        setIsHost(amHost)
+        isHostRef.current = amHost
+        if (!widgetRef.current) return
+        if (!amHost) {
+          widgetRef.current.seekTo(msg.position * 1000)
+        }
+        return
+      }
+
       if (!widgetRef.current) return
 
-      if (msg.type === "heartbeat" && !isHost) {
+      if (msg.type === "heartbeat" && !isHostRef.current) {
         if (listenerStarting.current) return
+
+        isRemoteUpdate.current = true
 
         widgetRef.current.getPosition((currentPos: number) => {
           const drift = Math.abs((currentPos / 1000) - msg.position)
@@ -82,19 +105,21 @@ export default function RoomPage({
             })
           }
         })
-      }
 
-      if (msg.type === "state" && !isHost) {
-        widgetRef.current.seekTo(msg.position * 1000)
+        setTimeout(() => {
+          isRemoteUpdate.current = false
+        }, 1000)
       }
     },
   })
 
-  React.useEffect(() => {
-    socketRef.current = socket
-    ;(window as any).__socket = socket
-    console.log("socket ready", socket.readyState)
-  }, [socket])
+  useEffect(() => {
+    isHostRef.current = isHost
+  }, [isHost])
+
+  function claimHost() {
+    socket.send(JSON.stringify({ type: "claim-host" }))
+  }
 
   useEffect(() => {
     if ((window as any).SC) {
@@ -113,16 +138,15 @@ export default function RoomPage({
       if (!iframe) return
 
       const widget = SC.Widget(iframe)
-widgetRef.current = widget
-;(window as any).__widget = widget
-console.log("widget initialized")
+      widgetRef.current = widget
     }
   }, [])
 
   useEffect(() => {
-    if (!isHost || !widgetRef.current) return
+    if (!isHost) return
 
     const interval = setInterval(() => {
+      if (!widgetRef.current) return
       widgetRef.current.isPaused((paused: boolean) => {
         widgetRef.current.getPosition((pos: number) => {
           socket.send(JSON.stringify({
@@ -176,26 +200,40 @@ console.log("widget initialized")
           >
             {copied ? "Copied!" : "Copy link"}
           </button>
-          <button
-            onClick={() => setIsHost((h) => !h)}
-            className={`text-xs px-3 py-1 rounded-full border transition ${
-              isHost
-                ? "border-violet-500 text-violet-400"
-                : "border-zinc-700 text-zinc-500"
-            }`}
-          >
-            {isHost ? "Host" : "Listener"}
-          </button>
+          {isHost ? (
+            <span className="text-xs px-3 py-1 rounded-full border border-violet-500 text-violet-400">
+              Host
+            </span>
+          ) : (
+            <button
+              onClick={claimHost}
+              className="text-xs px-3 py-1 rounded-full border border-zinc-700 text-zinc-500 hover:text-white hover:border-zinc-500 transition"
+            >
+              {hostId ? "Take control" : "Claim host"}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Player */}
       <div className="px-6 py-6 border-b border-zinc-800">
-        {needsInteraction && (
-  <div className="mb-4 bg-violet-900/40 border border-violet-700 text-violet-300 text-sm px-4 py-3 rounded-lg">
-    ▶ The room is playing — press play on the player below to join
-  </div>
-)}
+        {needsInteraction && !isHost && (
+          <div
+            className="mb-4 bg-violet-900/40 border border-violet-700 text-violet-300 text-sm px-4 py-3 rounded-lg cursor-pointer hover:bg-violet-900/60 transition"
+            onClick={() => {
+              listenerStarting.current = true
+              isRemoteUpdate.current = true
+              widgetRef.current?.play()
+              setNeedsInteraction(false)
+              setTimeout(() => {
+                listenerStarting.current = false
+                isRemoteUpdate.current = false
+              }, 3000)
+            }}
+          >
+            ▶ Click here to join the room audio
+          </div>
+        )}
         <iframe
           ref={iframeRef}
           id="sc-player"

@@ -1,6 +1,7 @@
 import type * as Party from "partykit/server"
 
 export default class RoomServer implements Party.Server {
+  hostId: string | null = null
   playing = false
   position = 0
   lastUpdated = Date.now()
@@ -14,7 +15,15 @@ export default class RoomServer implements Party.Server {
       this.room.broadcast(message, [sender.id])
     }
 
-    if (msg.type === "heartbeat") {
+    if (msg.type === "claim-host") {
+      this.hostId = sender.id
+      this.room.broadcast(JSON.stringify({
+        type: "host-changed",
+        hostId: sender.id,
+      }))
+    }
+
+    if (msg.type === "heartbeat" && sender.id === this.hostId) {
       this.playing = msg.playing
       this.position = msg.position
       this.lastUpdated = Date.now()
@@ -31,6 +40,17 @@ export default class RoomServer implements Party.Server {
       type: "state",
       playing: this.playing,
       position: currentPosition,
+      hostId: this.hostId,
     }))
+  }
+
+  onClose(conn: Party.Connection) {
+    if (conn.id === this.hostId) {
+      this.hostId = null
+      this.room.broadcast(JSON.stringify({
+        type: "host-changed",
+        hostId: null,
+      }))
+    }
   }
 }
