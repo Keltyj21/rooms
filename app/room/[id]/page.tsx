@@ -2,12 +2,20 @@
 
 import React, { useEffect, useRef, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import usePartySocket from "partysocket/react"
 
 type Message = {
   name: string
   color: string
   text: string
+}
+
+type Song = {
+  id: string
+  url: string
+  addedBy: string
+  addedAt: number
 }
 
 const COLORS = [
@@ -23,8 +31,9 @@ function randomColor() {
   return COLORS[Math.floor(Math.random() * COLORS.length)]
 }
 
-const SOUNDCLOUD_SRC =
-  "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/soundcloud%253Atracks%253A2285518262&color=%23000000&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false"
+function toEmbedUrl(scUrl: string): string {
+  return `https://w.soundcloud.com/player/?url=${encodeURIComponent(scUrl)}&color=%23000000&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false`
+}
 
 export default function RoomPage({
   params,
@@ -32,6 +41,9 @@ export default function RoomPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = React.use(params)
+  const searchParams = useSearchParams()
+  const initialSong = searchParams.get("song")
+
   const [messages, setMessages] = useState<Message[]>([])
   const [inputText, setInputText] = useState("")
   const [name, setName] = useState("")
@@ -40,12 +52,19 @@ export default function RoomPage({
   const [needsInteraction, setNeedsInteraction] = useState(false)
   const [isHost, setIsHost] = useState(false)
   const [hostId, setHostId] = useState<string | null>(null)
+  const [queue, setQueue] = useState<Song[]>([])
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [addSongInput, setAddSongInput] = useState("")
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const widgetRef = useRef<any>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const isRemoteUpdate = useRef(false)
   const listenerStarting = useRef(false)
   const isHostRef = useRef(false)
+  const initialSongSent = useRef(false)
+
+  const currentSong = queue[currentIndex] ?? null
 
   const socket = usePartySocket({
     host: "rooms.keltyj21.partykit.dev",
@@ -71,10 +90,24 @@ export default function RoomPage({
         const amHost = msg.hostId === socket.id
         setIsHost(amHost)
         isHostRef.current = amHost
-        if (!widgetRef.current) return
-        if (!amHost) {
+        const serverQueue: Song[] = msg.queue ?? []
+        setQueue(serverQueue)
+        setCurrentIndex(msg.currentIndex ?? 0)
+
+        if (!amHost && widgetRef.current) {
           widgetRef.current.seekTo(msg.position * 1000)
         }
+
+        if (serverQueue.length === 0 && initialSong && !initialSongSent.current) {
+          initialSongSent.current = true
+          socket.send(JSON.stringify({ type: "add-song", url: initialSong, addedBy: "host" }))
+        }
+        return
+      }
+
+      if (msg.type === "queue-update") {
+        setQueue(msg.queue)
+        setCurrentIndex(msg.currentIndex)
         return
       }
 
@@ -121,7 +154,17 @@ export default function RoomPage({
     socket.send(JSON.stringify({ type: "claim-host" }))
   }
 
+  // Re-initialize the SC widget whenever the current song changes
   useEffect(() => {
+    if (!currentSong) return
+
+    function initWidget() {
+      const SC = (window as any).SC
+      const iframe = iframeRef.current
+      if (!iframe) return
+      widgetRef.current = SC.Widget(iframe)
+    }
+
     if ((window as any).SC) {
       initWidget()
       return
@@ -131,16 +174,8 @@ export default function RoomPage({
     script.src = "https://w.soundcloud.com/player/api.js"
     script.onload = () => initWidget()
     document.head.appendChild(script)
-
-    function initWidget() {
-      const SC = (window as any).SC
-      const iframe = iframeRef.current
-      if (!iframe) return
-
-      const widget = SC.Widget(iframe)
-      widgetRef.current = widget
-    }
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSong?.url])
 
   useEffect(() => {
     if (!isHost) return
@@ -171,6 +206,13 @@ export default function RoomPage({
     socket.send(JSON.stringify(msg))
     setMessages((prev) => [...prev, { name, color, text: inputText.trim() }])
     setInputText("")
+  }
+
+  function addSong() {
+    const url = addSongInput.trim()
+    if (!url) return
+    socket.send(JSON.stringify({ type: "add-song", url, addedBy: name || "guest" }))
+    setAddSongInput("")
   }
 
   return (
@@ -234,16 +276,41 @@ export default function RoomPage({
             ▶ Click here to join the room audio
           </div>
         )}
-        <iframe
-          ref={iframeRef}
-          id="sc-player"
-          width="100%"
-          height="166"
-          scrolling="no"
-          frameBorder="no"
-          allow="autoplay; encrypted-media"
-          src={SOUNDCLOUD_SRC}
-        />
+
+        {currentSong ? (
+          <iframe
+            key={currentSong.url}
+            ref={iframeRef}
+            id="sc-player"
+            width="100%"
+            height="166"
+            scrolling="no"
+            frameBorder="no"
+            allow="autoplay; encrypted-media"
+            src={toEmbedUrl(currentSong.url)}
+          />
+        ) : (
+          <div className="h-[166px] flex items-center justify-center rounded-lg border border-dashed border-zinc-800 text-zinc-600 text-sm">
+            No song — paste a SoundCloud link below to get started
+          </div>
+        )}
+
+        <div className="mt-3 flex gap-2">
+          <input
+            type="url"
+            value={addSongInput}
+            onChange={(e) => setAddSongInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addSong() }}
+            placeholder="Paste a SoundCloud link..."
+            className="flex-1 bg-zinc-900 rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-zinc-700 placeholder:text-zinc-600"
+          />
+          <button
+            onClick={addSong}
+            className="bg-zinc-800 hover:bg-zinc-700 text-white text-sm font-medium px-4 py-2 rounded-md transition"
+          >
+            Add
+          </button>
+        </div>
       </div>
 
       {/* Name input */}
